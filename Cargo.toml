@@ -1,0 +1,7 @@
+[package]
+name = "hashcons"
+version = "0.1.0"
+authors = ["Po' Lazarus <polazarus@whilefalse.com>"]
+
+[dependencies]
+log = "0.3.*"
