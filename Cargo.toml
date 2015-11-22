@@ -3,5 +3,10 @@ name = "hashcons"
 version = "0.1.0"
 authors = ["Po' Lazarus <polazarus@whilefalse.com>"]
 
+description = "Hash-consing library for Rust"
+repository = "https://github.com/polazarus/rust-hashcons"
+readme = "README.md"
+license = "MIT License"
+
 [dependencies]
 log = "0.3.*"
