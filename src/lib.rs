@@ -10,9 +10,10 @@ use std::fmt::{self, Debug};
 use std::cell::UnsafeCell;
 
 
-/// Box that encapsulates a value to hash-cons, a reference to the conser, and a reference counter.
+/// Box that encapsulates a value to hash-cons, a reference to the conser,
+/// and a reference counter
 struct HashConsedBox<T>
-    where T: Hash + Eq
+    where T: Eq + Hash
 {
     value: T,
     conser: HashConser<T>,
@@ -33,9 +34,9 @@ struct HashConsedBox<T>
 ///   * does not update automatically the ref count,
 ///
 ///   * inherits PartialEq, Eq, and Hash from the raw value.
-struct UnsafeRef<T>(*mut UnsafeCell<HashConsedBox<T>>) where T: Hash + Eq;
+struct UnsafeRef<T>(*mut UnsafeCell<HashConsedBox<T>>) where T: Eq + Hash;
 
-impl<T> UnsafeRef<T> where T: Hash + Eq {
+impl<T> UnsafeRef<T> where T: Eq + Hash {
 
     /// Make an unsafed reference to a owned hash-consed box
     #[inline]
@@ -88,7 +89,7 @@ impl<T> UnsafeRef<T> where T: Hash + Eq {
 }
 
 /// Hash the underlying value
-impl<T> Hash for UnsafeRef<T> where T: Hash + Eq {
+impl<T> Hash for UnsafeRef<T> where T: Eq + Hash {
 
     #[inline]
     fn hash<H>(&self, h: &mut H)
@@ -100,7 +101,7 @@ impl<T> Hash for UnsafeRef<T> where T: Hash + Eq {
 }
 
 /// Compare the underlying values
-impl<T> PartialEq<UnsafeRef<T>> for UnsafeRef<T> where T: Hash + Eq {
+impl<T> PartialEq<UnsafeRef<T>> for UnsafeRef<T> where T: Eq + Hash {
 
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -109,11 +110,11 @@ impl<T> PartialEq<UnsafeRef<T>> for UnsafeRef<T> where T: Hash + Eq {
 
 }
 
-impl<T> Eq for UnsafeRef<T> where T: Hash + Eq {
+impl<T> Eq for UnsafeRef<T> where T: Eq + Hash {
 }
 
 /// Clone a new reference to the hash-consed value
-impl<T> Clone for UnsafeRef<T> where T: Hash + Eq {
+impl<T> Clone for UnsafeRef<T> where T: Eq + Hash {
 
     #[inline]
     fn clone(&self) -> Self {
@@ -122,7 +123,7 @@ impl<T> Clone for UnsafeRef<T> where T: Hash + Eq {
 
 }
 
-impl<T> Copy for UnsafeRef<T> where T: Hash + Eq {}
+impl<T> Copy for UnsafeRef<T> where T: Eq + Hash {}
 
 /// Reference to a hash-consed value.
 ///
@@ -130,9 +131,10 @@ impl<T> Copy for UnsafeRef<T> where T: Hash + Eq {}
 /// `HashConser`.
 ///
 /// Uses fast pointer equality and hash.
-pub struct HashConsed<T>(UnsafeRef<T>) where T: Hash + Eq;
+pub struct HashConsed<T>(UnsafeRef<T>) where T: Eq + Hash;
 
-impl<T> HashConsed<T> where T: Hash + Eq {
+impl<T> HashConsed<T> where T: Eq + Hash {
+
     /// Wrap an unsafe reference
     fn from_unsafe(u: &UnsafeRef<T>) -> Self {
         u.inc_refs();
@@ -151,68 +153,76 @@ impl<T> HashConsed<T> where T: Hash + Eq {
     pub fn refs(&self) -> usize {
         self.0.refs()
     }
+
 }
 
 /// Get reference to the raw value
-impl<T> Deref for HashConsed<T> where T: Hash + Eq {
-  type Target = T;
+impl<T> Deref for HashConsed<T> where T: Eq + Hash {
+
+    type Target = T;
+
     fn deref(&self) -> &T {
         return self.value();
     }
+
 }
 
 /// Fast hash (pointer-based)
 ///
 /// Beware that it does not make any sense if the compared values where built through different
 /// `HashConser`.
-impl<T> Hash for HashConsed<T> where T: Hash + Eq {
+impl<T> Hash for HashConsed<T> where T: Eq + Hash {
+
     fn hash<H>(&self, h: &mut H)
         where H: Hasher
     {
         self.0.as_ptr().hash(h);
     }
+
 }
 
 /// Fast comparison (pointer-based)
 ///
 /// Beware that it does not make any sense if the compared values where built through different
 /// `HashConser`
-impl<T> PartialEq<HashConsed<T>> for HashConsed<T> where T: Hash + Eq {
+impl<T> PartialEq<HashConsed<T>> for HashConsed<T> where T: Eq + Hash {
+
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.0.as_ptr() == other.0.as_ptr()
     }
+
 }
 
-impl<T> Eq for HashConsed<T> where T: Hash + Eq {}
+impl<T> Eq for HashConsed<T> where T: Eq + Hash {}
 
-impl<T> Drop for HashConsed<T> where T: Hash + Eq {
+impl<T> Drop for HashConsed<T> where T: Eq + Hash {
+
     fn drop(&mut self) {
+        self.0.dec_refs();
+        debug!("del ref {:p} ({} refs remaining)",
+               self.0.value(),
+               self.0.refs());
         if self.0.refs() == 0 {
-            panic!();
-        } else {
-            self.0.dec_refs();
-            debug!("del ref {:p} ({} refs remaining)",
-                   self.0.value(),
-                   self.0.refs());
-            if self.0.refs() == 0 {
-                debug!("del val {:p}", self.value());
-                let conser = unsafe { &mut *self.0.conser() };
-                conser.remove(&self.0);
-                self.0.destroy();
-            }
+            debug!("del val {:p}", self.value());
+            let conser = unsafe { &mut *self.0.conser() };
+            conser.remove(&self.0);
+            self.0.destroy();
         }
     }
+
 }
 
-impl<T> Debug for HashConsed<T> where T: Hash + Eq + Debug {
+impl<T> Debug for HashConsed<T> where T: Eq + Hash + Debug {
+
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self.0.value(), fmt)
     }
+
 }
 
 /// Get a new reference to this hash-consed value.
-impl<T> Clone for HashConsed<T> where T: Hash + Eq {
+impl<T> Clone for HashConsed<T> where T: Eq + Hash {
     fn clone(&self) -> Self {
         self.0.inc_refs();
         debug!("new ref {:p} (clone, {} refs total)",
@@ -222,12 +232,12 @@ impl<T> Clone for HashConsed<T> where T: Hash + Eq {
     }
 }
 
-type HM<T> where T: Hash + Eq = HashMap<UnsafeRef<T>, UnsafeRef<T>>;
+type HM<T> where T: Eq + Hash = HashMap<UnsafeRef<T>, UnsafeRef<T>>;
 
 /// Hash-conser, i.e. hash-consed value factory and cache.
-pub struct HashConser<T>(*mut UnsafeCell<HM<T>>) where T: Hash + Eq;
+pub struct HashConser<T>(*mut UnsafeCell<HM<T>>) where T: Eq + Hash;
 
-impl<T> HashConser<T> where T: Hash + Eq {
+impl<T> HashConser<T> where T: Eq + Hash {
 
     /// Create a hash-conser.
     pub fn new() -> Self {
@@ -279,7 +289,7 @@ impl<T> HashConser<T> where T: Hash + Eq {
     }
 }
 
-impl<T> Drop for HashConser<T> where T: Hash + Eq {
+impl<T> Drop for HashConser<T> where T: Eq + Hash {
     fn drop(&mut self) {
         debug!("del ref HashConser({:p}) ({} refs remaining)",
                self.0,
@@ -292,7 +302,7 @@ impl<T> Drop for HashConser<T> where T: Hash + Eq {
     }
 }
 
-impl<T> Debug for HashConser<T> where T: Hash + Eq + Debug {
+impl<T> Debug for HashConser<T> where T: Eq + Hash + Debug {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         try!(fmt.write_str("{"));
         for (i, k) in self.map().keys().enumerate() {
