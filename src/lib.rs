@@ -142,18 +142,6 @@ impl<T> HashConsed<T> where T: Eq + Hash {
         HashConsed(*u)
     }
 
-    /// Get underlying value
-    #[inline]
-    pub fn value(&self) -> &T {
-        self.0.value()
-    }
-
-    /// Get number of references
-    #[cfg(test)]
-    pub fn refs(&self) -> usize {
-        self.0.refs()
-    }
-
 }
 
 /// Get reference to the raw value
@@ -162,7 +150,7 @@ impl<T> Deref for HashConsed<T> where T: Eq + Hash {
     type Target = T;
 
     fn deref(&self) -> &T {
-        return self.value();
+        return self.0.value();
     }
 
 }
@@ -204,7 +192,7 @@ impl<T> Drop for HashConsed<T> where T: Eq + Hash {
                self.0.value(),
                self.0.refs());
         if self.0.refs() == 0 {
-            debug!("del val {:p}", self.value());
+            debug!("del val {:p}", self.0.value());
             let conser = unsafe { &mut *self.0.conser() };
             conser.remove(&self.0);
             self.0.destroy();
