@@ -43,7 +43,7 @@ impl<T> UnsafeRef<T> where T: Eq + Hash {
     fn make(conser: &HashConser<T>, value: T) -> Self {
         UnsafeRef(Box::into_raw(Box::new(UnsafeCell::new(HashConsedBox {
             value: value,
-            conser: conser.copy(),
+            conser: conser.clone(),
             refs: 0,
         }))))
     }
@@ -56,8 +56,8 @@ impl<T> UnsafeRef<T> where T: Eq + Hash {
 
     /// Get pointer to conser
     #[inline]
-    fn conser(&mut self) -> *mut HashConser<T> {
-        unsafe { &mut (*self.as_ptr()).conser as *mut HashConser<T> }
+    fn conser<'a>(&self) -> &'a mut HashConser<T> {
+        unsafe { &mut (*self.as_ptr()).conser }
     }
 
     #[inline]
@@ -142,6 +142,11 @@ impl<T> HashConsed<T> where T: Eq + Hash {
         HashConsed(*u)
     }
 
+
+    /// Get parent conser
+    pub fn conser(this: &Self) -> &HashConser<T> {
+        this.0.conser()
+    }
 }
 
 /// Get reference to the raw value
@@ -193,8 +198,7 @@ impl<T> Drop for HashConsed<T> where T: Eq + Hash {
                self.0.refs());
         if self.0.refs() == 0 {
             debug!("del val {:p}", self.0.value());
-            let conser = unsafe { &mut *self.0.conser() };
-            conser.remove(&self.0);
+            self.0.conser().remove(&self.0);
             self.0.destroy();
         }
     }
@@ -222,19 +226,48 @@ impl<T> Clone for HashConsed<T> where T: Eq + Hash {
 
 type HM<T> where T: Eq + Hash = HashMap<UnsafeRef<T>, UnsafeRef<T>>;
 
+struct HashConserBox<T> where T: Eq + Hash {
+    map: HM<T>,
+    refs: usize,
+}
+
 /// Hash-conser, i.e. hash-consed value factory and cache.
-pub struct HashConser<T>(*mut UnsafeCell<HM<T>>) where T: Eq + Hash;
+pub struct HashConser<T>(*mut UnsafeCell<HashConserBox<T>>) where T: Eq + Hash;
 
 impl<T> HashConser<T> where T: Eq + Hash {
 
     /// Create a hash-conser.
     pub fn new() -> Self {
-        HashConser(Box::into_raw(Box::new(UnsafeCell::new(HashMap::new()))))
+        HashConser(Box::into_raw(Box::new(UnsafeCell::new(HashConserBox {
+            map: HashMap::new(),
+            refs: 1,
+        }))))
     }
 
     #[inline]
     fn map(&self) -> &mut HM<T> {
-        unsafe { &mut (*(*self.0).get()) }
+        unsafe { &mut (*(*self.0).get()).map }
+    }
+
+    #[inline]
+    fn refs(&self) -> usize {
+        unsafe { (*(*self.0).get()).refs }
+    }
+
+    #[inline]
+    fn inc_refs(&self) {
+        unsafe {
+            let box_ptr = (*self.0).get();
+            (*box_ptr).refs += 1;
+        }
+    }
+
+    #[inline]
+    fn dec_refs(&self) {
+        unsafe {
+            let box_ptr = (*self.0).get();
+            (*box_ptr).refs -= 1;
+        }
     }
 
     /// Make a hash-consed value from an unwrapped value
@@ -265,32 +298,37 @@ impl<T> HashConser<T> where T: Eq + Hash {
         self.map().remove(hc);
     }
 
-    /// Private: get a new reference of the conference
-    ///
-    /// WARNING! no reference counting
-    ///
-    /// *Invariant:* the number of references is the number of hash-consed values plus one if the
-    /// user stills holds the ref
+}
+
+impl<T> Clone for HashConser<T> where T: Eq + Hash {
+
     #[inline]
-    fn copy(&self) -> Self {
+    fn clone(&self) -> Self {
+        self.inc_refs();
         HashConser(self.0)
     }
+
 }
 
 impl<T> Drop for HashConser<T> where T: Eq + Hash {
+
     fn drop(&mut self) {
+        self.dec_refs();
         debug!("del ref HashConser({:p}) ({} refs remaining)",
                self.0,
-               self.map().len());
-        if self.map().len() == 0 {
+               self.refs());
+        if self.refs() == 0 {
+            assert!(self.map().len() == 0);
             debug!("del val HashConser({:p})", self.0);
             let b = unsafe { Box::from_raw(self.0) };
             drop(b);
         }
     }
+
 }
 
 impl<T> Debug for HashConser<T> where T: Eq + Hash + Debug {
+
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         try!(fmt.write_str("{"));
         for (i, k) in self.map().keys().enumerate() {
@@ -301,6 +339,7 @@ impl<T> Debug for HashConser<T> where T: Eq + Hash + Debug {
         }
         fmt.write_str("}")
     }
+
 }
 
 #[test]
