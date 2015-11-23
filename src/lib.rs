@@ -342,5 +342,22 @@ impl<T> Debug for HashConser<T> where T: Eq + Hash + Debug {
 
 }
 
-#[test]
-fn it_works() {}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[derive(Debug,PartialEq,Eq,Hash)]
+    struct Pair(u8, u8);
+    type HCPair = HashConsed<Pair>;
+
+    #[test]
+    fn test_equality() {
+        let mut conser = HashConser::new();
+        let a: HCPair = conser.make(Pair(0,1));
+        let b: HCPair = conser.make(Pair(0,1));
+        assert_eq!(a, b);
+        assert_eq!(&*a as *const Pair, &*b as *const Pair);
+    }
+
+}
