@@ -7,7 +7,6 @@ use std::ops::{Deref, Drop};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::fmt::{self, Debug};
-use std::cell::UnsafeCell;
 
 
 /// Box that encapsulates a value to hash-cons, a reference to the conser,
@@ -34,18 +33,18 @@ struct HashConsedBox<T>
 ///   * does not update automatically the ref count,
 ///
 ///   * inherits PartialEq, Eq, and Hash from the raw value.
-struct UnsafeRef<T>(*mut UnsafeCell<HashConsedBox<T>>) where T: Eq + Hash;
+struct UnsafeRef<T>(*mut HashConsedBox<T>) where T: Eq + Hash;
 
 impl<T> UnsafeRef<T> where T: Eq + Hash {
 
     /// Make an unsafed reference to a owned hash-consed box
     #[inline]
     fn make(conser: &HashConser<T>, value: T) -> Self {
-        UnsafeRef(Box::into_raw(Box::new(UnsafeCell::new(HashConsedBox {
+        UnsafeRef(Box::into_raw(Box::new(HashConsedBox {
             value: value,
             conser: conser.clone(),
             refs: 0,
-        }))))
+        })))
     }
 
     /// Destroy (drop) the underlying hash-consed box
@@ -84,7 +83,7 @@ impl<T> UnsafeRef<T> where T: Eq + Hash {
 
     #[inline]
     fn as_ptr(&self) -> *mut HashConsedBox<T> {
-        unsafe { (*self.0).get() }
+        self.0
     }
 }
 
@@ -232,41 +231,39 @@ struct HashConserBox<T> where T: Eq + Hash {
 }
 
 /// Hash-conser, i.e. hash-consed value factory and cache.
-pub struct HashConser<T>(*mut UnsafeCell<HashConserBox<T>>) where T: Eq + Hash;
+pub struct HashConser<T>(*mut HashConserBox<T>) where T: Eq + Hash;
 
 impl<T> HashConser<T> where T: Eq + Hash {
 
     /// Create a hash-conser.
     pub fn new() -> Self {
-        HashConser(Box::into_raw(Box::new(UnsafeCell::new(HashConserBox {
+        HashConser(Box::into_raw(Box::new(HashConserBox {
             map: HashMap::new(),
             refs: 1,
-        }))))
+        })))
     }
 
     #[inline]
     fn map(&self) -> &mut HM<T> {
-        unsafe { &mut (*(*self.0).get()).map }
+        unsafe { &mut (*self.0).map }
     }
 
     #[inline]
     fn refs(&self) -> usize {
-        unsafe { (*(*self.0).get()).refs }
+        unsafe { (*self.0).refs }
     }
 
     #[inline]
     fn inc_refs(&self) {
         unsafe {
-            let box_ptr = (*self.0).get();
-            (*box_ptr).refs += 1;
+            (*self.0).refs += 1;
         }
     }
 
     #[inline]
     fn dec_refs(&self) {
         unsafe {
-            let box_ptr = (*self.0).get();
-            (*box_ptr).refs -= 1;
+            (*self.0).refs -= 1;
         }
     }
 
@@ -274,8 +271,7 @@ impl<T> HashConser<T> where T: Eq + Hash {
     pub fn make(&mut self, obj: T) -> HashConsed<T> {
         debug!("h-cons  {:p} in {:p}", &obj, self);
         let input = UnsafeRef::make(self, obj);
-        let map = self.map();
-        let safe = match map.get(&input) {
+        let safe = match self.map().get(&input) {
             Some(output) => {
                 debug!("recycle {:p} (already {} refs)",
                        output.value(),
