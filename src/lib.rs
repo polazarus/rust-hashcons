@@ -7,6 +7,7 @@ use std::ops::{Deref, Drop};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::fmt::{self, Debug};
+use std::marker::PhantomData;
 
 
 /// Box that encapsulates a value to hash-cons, a reference to the conser,
@@ -33,58 +34,58 @@ struct HashConsedBox<T>
 ///   * does not update automatically the ref count,
 ///
 ///   * inherits PartialEq, Eq, and Hash from the raw value.
-struct UnsafeRef<T>(*mut HashConsedBox<T>) where T: Eq + Hash;
+struct UnsafeRef<T> where T: Eq + Hash {
+    ptr: *mut HashConsedBox<T>,
+    _marker: PhantomData<HashConsedBox<T>>,
+}
 
 impl<T> UnsafeRef<T> where T: Eq + Hash {
 
     /// Make an unsafed reference to a owned hash-consed box
     #[inline]
     fn make(conser: &HashConser<T>, value: T) -> Self {
-        UnsafeRef(Box::into_raw(Box::new(HashConsedBox {
-            value: value,
-            conser: conser.clone(),
-            refs: 0,
-        })))
+        UnsafeRef {
+            ptr: Box::into_raw(Box::new(HashConsedBox {
+                value: value,
+                conser: conser.clone(),
+                refs: 0,
+            })),
+            _marker: PhantomData
+        }
     }
 
     /// Destroy (drop) the underlying hash-consed box
     #[inline]
     fn destroy(&self) {
-        drop(unsafe { Box::from_raw(self.0) });
+        drop(unsafe { Box::from_raw(self.ptr) });
     }
 
     /// Get pointer to conser
     #[inline]
-    fn conser<'a>(&self) -> &'a mut HashConser<T> {
-        unsafe { &mut (*self.as_ptr()).conser }
+    fn conser(&self) -> &mut HashConser<T> {
+        unsafe { &mut (*self.ptr).conser }
     }
 
     #[inline]
     fn refs(&self) -> usize {
-        unsafe { (*self.as_ptr()).refs }
+        unsafe { (*self.ptr).refs }
     }
 
     #[inline]
     fn inc_refs(&self) {
-        let refs = unsafe { &mut (*self.as_ptr()).refs };
-        *refs += 1;
+        unsafe { (*self.ptr).refs += 1; }
     }
 
     #[inline]
     fn dec_refs(&self) {
-        let refs = unsafe { &mut (*self.as_ptr()).refs };
-        *refs -= 1;
+        unsafe { (*self.ptr).refs += 1; }
     }
 
     #[inline]
     fn value(&self) -> &T {
-        unsafe { &(*self.as_ptr()).value }
+        unsafe { &(*self.ptr).value }
     }
 
-    #[inline]
-    fn as_ptr(&self) -> *mut HashConsedBox<T> {
-        self.0
-    }
 }
 
 /// Hash the underlying value
@@ -109,15 +110,13 @@ impl<T> PartialEq<UnsafeRef<T>> for UnsafeRef<T> where T: Eq + Hash {
 
 }
 
-impl<T> Eq for UnsafeRef<T> where T: Eq + Hash {
-}
+impl<T> Eq for UnsafeRef<T> where T: Eq + Hash {}
 
-/// Clone a new reference to the hash-consed value
 impl<T> Clone for UnsafeRef<T> where T: Eq + Hash {
 
     #[inline]
     fn clone(&self) -> Self {
-        UnsafeRef(self.0)
+        *self
     }
 
 }
@@ -153,6 +152,7 @@ impl<T> Deref for HashConsed<T> where T: Eq + Hash {
 
     type Target = T;
 
+    #[inline]
     fn deref(&self) -> &T {
         return self.0.value();
     }
@@ -165,10 +165,11 @@ impl<T> Deref for HashConsed<T> where T: Eq + Hash {
 /// `HashConser`.
 impl<T> Hash for HashConsed<T> where T: Eq + Hash {
 
+    #[inline]
     fn hash<H>(&self, h: &mut H)
         where H: Hasher
     {
-        self.0.as_ptr().hash(h);
+        self.0.ptr.hash(h);
     }
 
 }
@@ -181,7 +182,7 @@ impl<T> PartialEq<HashConsed<T>> for HashConsed<T> where T: Eq + Hash {
 
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.0.as_ptr() == other.0.as_ptr()
+        self.0.ptr == other.0.ptr
     }
 
 }
@@ -214,6 +215,7 @@ impl<T> Debug for HashConsed<T> where T: Eq + Hash + Debug {
 
 /// Get a new reference to this hash-consed value.
 impl<T> Clone for HashConsed<T> where T: Eq + Hash {
+
     fn clone(&self) -> Self {
         self.0.inc_refs();
         debug!("new ref {:p} (clone, {} refs total)",
@@ -221,6 +223,7 @@ impl<T> Clone for HashConsed<T> where T: Eq + Hash {
                self.0.refs());
         HashConsed(self.0)
     }
+
 }
 
 type HM<T> where T: Eq + Hash = HashMap<UnsafeRef<T>, UnsafeRef<T>>;
@@ -231,39 +234,45 @@ struct HashConserBox<T> where T: Eq + Hash {
 }
 
 /// Hash-conser, i.e. hash-consed value factory and cache.
-pub struct HashConser<T>(*mut HashConserBox<T>) where T: Eq + Hash;
+pub struct HashConser<T> where T: Eq + Hash {
+    ptr: *mut HashConserBox<T>,
+    _marker: PhantomData<HashConserBox<T>>,
+}
 
 impl<T> HashConser<T> where T: Eq + Hash {
 
     /// Create a hash-conser.
     pub fn new() -> Self {
-        HashConser(Box::into_raw(Box::new(HashConserBox {
-            map: HashMap::new(),
-            refs: 1,
-        })))
+        HashConser {
+            ptr: Box::into_raw(Box::new(HashConserBox {
+                map: HashMap::new(),
+                refs: 1,
+            })),
+            _marker: PhantomData,
+        }
     }
 
     #[inline]
     fn map(&self) -> &mut HM<T> {
-        unsafe { &mut (*self.0).map }
+        unsafe { &mut (*self.ptr).map }
     }
 
     #[inline]
     fn refs(&self) -> usize {
-        unsafe { (*self.0).refs }
+        unsafe { (*self.ptr).refs }
     }
 
     #[inline]
     fn inc_refs(&self) {
         unsafe {
-            (*self.0).refs += 1;
+            (*self.ptr).refs += 1;
         }
     }
 
     #[inline]
     fn dec_refs(&self) {
         unsafe {
-            (*self.0).refs -= 1;
+            (*self.ptr).refs -= 1;
         }
     }
 
@@ -301,7 +310,10 @@ impl<T> Clone for HashConser<T> where T: Eq + Hash {
     #[inline]
     fn clone(&self) -> Self {
         self.inc_refs();
-        HashConser(self.0)
+        HashConser {
+            ptr: self.ptr,
+            _marker: PhantomData,
+        }
     }
 
 }
@@ -311,12 +323,12 @@ impl<T> Drop for HashConser<T> where T: Eq + Hash {
     fn drop(&mut self) {
         self.dec_refs();
         debug!("del ref HashConser({:p}) ({} refs remaining)",
-               self.0,
+               self.ptr,
                self.refs());
         if self.refs() == 0 {
             assert!(self.map().len() == 0);
-            debug!("del val HashConser({:p})", self.0);
-            let b = unsafe { Box::from_raw(self.0) };
+            debug!("del val HashConser({:p})", self.ptr);
+            let b = unsafe { Box::from_raw(self.ptr) };
             drop(b);
         }
     }
@@ -356,4 +368,13 @@ mod test {
         assert_eq!(&*a as *const Pair, &*b as *const Pair);
     }
 
+    #[test]
+    fn test_drop_conser() {
+        let mut conser = HashConser::new();
+        let a: HCPair = conser.make(Pair(0,1));
+        let b: HCPair = conser.make(Pair(0,1));
+        drop(conser);
+        assert_eq!(a, b);
+        assert_eq!(&*a as *const Pair, &*b as *const Pair);
+    }
 }
